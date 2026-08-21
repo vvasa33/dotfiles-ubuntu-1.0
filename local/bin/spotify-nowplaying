@@ -1,0 +1,106 @@
+#!/bin/bash
+# Spotify now-playing notifications for swaync.
+# Fires once per track while Playing, with album art.
+
+CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/spotify-nowplaying"
+mkdir -p "$CACHE"
+
+exec 9>"$CACHE/lock"
+flock -n 9 || exit 0
+
+last_track=""
+last_nid=""
+had_art=""
+
+fetch_art() {
+    local url="$1"
+    local dest="$2"
+
+    case "$url" in
+        file://*)
+            python3 - "$url" <<'PY'
+import sys
+from urllib.parse import unquote, urlparse
+print(unquote(urlparse(sys.argv[1]).path))
+PY
+            ;;
+        http://*|https://*)
+            if curl -fsSL --max-time 8 "$url" -o "$dest"; then
+                printf '%s' "$dest"
+            fi
+            ;;
+    esac
+}
+
+notify_track() {
+    local title="$1"
+    local artist="$2"
+    local album="$3"
+    local icon="$4"
+    local replace="$5"
+
+    local body="$title"
+    if [[ -n "$artist" ]]; then
+        body="$title"$'\n'"$artist"
+    fi
+    if [[ -n "$album" && "$album" != "NA" && "$album" != "$title" ]]; then
+        body="$body"$'\n'"$album"
+    fi
+
+    local args=(
+        -a "NOW PLAYING"
+        -c "x-gnome.music"
+        -u low
+        -t 7000
+        -e
+        -h "string:desktop-entry:spotify"
+    )
+
+    if [[ -n "$icon" && -f "$icon" ]]; then
+        args+=(-i "$icon")
+    else
+        args+=(-i "spotify-client")
+    fi
+
+    if [[ -n "$replace" ]]; then
+        args+=(-r "$replace")
+    fi
+
+    notify-send -p "${args[@]}" "NOW PLAYING" "$body"
+}
+
+watch_player() {
+    playerctl -p spotify metadata --follow --format \
+        $'{{status}}\t{{mpris:trackid}}\t{{title}}\t{{artist}}\t{{album}}\t{{mpris:artUrl}}' 2>/dev/null
+}
+
+while true; do
+    while IFS=$'\t' read -r status trackid title artist album arturl; do
+        [[ -n "$title" && -n "$trackid" ]] || continue
+        [[ "$status" == "Playing" ]] || continue
+
+        artfile="$CACHE/cover.jpg"
+        icon="$(fetch_art "$arturl" "$artfile")"
+
+        if [[ "$trackid" == "$last_track" ]]; then
+            if [[ -n "$icon" && "$had_art" != "yes" && -n "$last_nid" ]]; then
+                last_nid="$(notify_track "$title" "$artist" "$album" "$icon" "$last_nid")"
+                had_art="yes"
+            fi
+            continue
+        fi
+
+        last_track="$trackid"
+        if [[ -n "$icon" ]]; then
+            had_art="yes"
+        else
+            had_art="no"
+        fi
+        last_nid="$(notify_track "$title" "$artist" "$album" "$icon" "")"
+    done < <(watch_player)
+
+    last_track=""
+    last_nid=""
+    had_art=""
+    sleep 2
+done

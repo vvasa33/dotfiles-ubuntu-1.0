@@ -1,0 +1,89 @@
+{
+    "layer": "top",
+    "position": "top",
+    "height": 42,
+    "spacing": 0,
+
+    "modules-left": [
+        "hyprland/workspaces"
+    ],
+
+    "modules-center": [
+        "clock"
+    ],
+
+    "modules-right": [
+        "mpris",
+        "network",
+        "backlight",
+        "pulseaudio",
+        "battery",
+        "tray"
+    ],
+
+    "hyprland/workspaces": {
+        "disable-scroll": true,
+        "all-outputs": true,
+        "format": "{name}",
+        "on-click": "activate",
+        "persistent-workspaces": {
+            "*": 5
+        }
+    },
+
+    "clock": {
+        "format": "{:%A, %B %d  •  %I:%M %p}",
+        "tooltip": false
+    },
+
+    "mpris": {
+        "format": "{status_icon} {artist} - {title}",
+        "format-paused": "{status_icon} {artist} - {title}",
+        "format-stopped": "",
+        "tooltip-format": "{player}  {status}\n{artist} - {title}",
+        "max-length": 42,
+        "status-icons": {
+            "playing": "󰏤",
+            "paused": "󰐊"
+        },
+        "on-click": "playerctl play-pause",
+        "on-scroll-up": "playerctl next",
+        "on-scroll-down": "playerctl previous"
+    },
+
+    "network": {
+        "format-wifi": "󰖩 {signalStrength}%",
+        "format-ethernet": "󰈀",
+        "format-disconnected": "󰖪",
+        "tooltip-format": "{ifname}: {ipaddr}"
+    },
+
+    "backlight": {
+        "device": "intel_backlight",
+        "format": "󰃠 {percent}%",
+        "format-disabled": "󰃠 OFF",
+        "tooltip-format": "Brightness: {percent}%",
+        "on-scroll-up": "brightnessctl -d intel_backlight set 5%+",
+        "on-scroll-down": "brightnessctl -d intel_backlight set 5%-"
+    },
+
+    "pulseaudio": {
+        "format": "󰕾 {volume}%",
+        "format-muted": "󰖁",
+        "on-click": "pavucontrol"
+    },
+
+    "battery": {
+        "format": "󰁹 {capacity}%",
+        "format-charging": "󰂄 {capacity}%",
+        "format-full": "󰁹 FULL",
+        "states": {
+            "warning": 30,
+            "critical": 15
+        }
+    },
+
+    "tray": {
+        "spacing": 8
+    }
+}

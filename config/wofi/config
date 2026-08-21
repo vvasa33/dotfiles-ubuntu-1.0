@@ -1,0 +1,16 @@
+# Wofi — Linux Ocean (matches waybar)
+
+width=560
+height=360
+location=center
+show=drun
+prompt=apps
+allow_markup=true
+insensitive=true
+matching=fuzzy
+sort_order=alphabetical
+lines=8
+columns=1
+hide_scroll=true
+allow_images=true
+image_size=24

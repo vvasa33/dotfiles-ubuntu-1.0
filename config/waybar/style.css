@@ -1,0 +1,208 @@
+/* =========================================================
+   NEO-BRUTALIST — LINUX OCEAN EDITION
+   Designed around the icy blue / navy wallpaper
+   ========================================================= */
+
+* {
+    font-family: "JetBrainsMono Nerd Font", monospace;
+    font-size: 13px;
+    font-weight: 900;
+}
+
+/* =========================================================
+   MAIN BAR
+   ========================================================= */
+
+window#waybar {
+    background: transparent;
+    color: #00334d;
+}
+
+/* Breathing room */
+.modules-left,
+.modules-center,
+.modules-right {
+    margin-top: 7px;
+    margin-bottom: 7px;
+    margin-right: 7px;
+}
+
+/* =========================================================
+   WORKSPACES
+   ========================================================= */
+
+#workspaces {
+    margin-left: 12px;
+}
+
+#workspaces button {
+    min-width: 32px;
+    min-height: 28px;
+
+    padding: 0 11px;
+    margin-right: 7px;
+
+    background: #f8fdff;
+    color: #00334d;
+
+    border: 4px solid #00334d;
+    border-radius: 0;
+
+    box-shadow: 5px 5px 0 #00334d;
+}
+
+/* Cyan hover */
+#workspaces button:hover {
+    background: #24a9e8;
+    color: #00334d;
+}
+
+/* Active workspace — deep navy like the wallpaper shapes */
+#workspaces button.active {
+    background: #00334d;
+    color: #f8fdff;
+
+    border: 4px solid #00334d;
+    box-shadow: 5px 5px 0 #0075bc;
+}
+
+/* Empty workspaces */
+#workspaces button.empty {
+    background: #b8e6f7;
+    color: #00334d;
+}
+
+/* =========================================================
+   CENTER — CLOCK
+   ========================================================= */
+
+#clock {
+    min-height: 28px;
+
+    padding: 0 14px;
+
+    background: #24a9e8;
+    color: #00334d;
+
+    border: 4px solid #00334d;
+    border-radius: 0;
+
+    box-shadow: 5px 5px 0 #00334d;
+}
+
+/* =========================================================
+   RIGHT-SIDE UTILITIES
+   ========================================================= */
+
+#mpris,
+#network,
+#backlight,
+#pulseaudio,
+#battery,
+#tray {
+    min-height: 28px;
+
+    padding: 0 13px;
+    margin-left: 7px;
+
+    color: #00334d;
+
+    border: 4px solid #00334d;
+    border-radius: 0;
+
+    box-shadow: 5px 5px 0 #00334d;
+}
+
+/* =========================================================
+   NOW PLAYING
+   ========================================================= */
+
+#mpris {
+    background: #b8e6f7;
+    color: #00334d;
+}
+
+#mpris.paused {
+    background: #00334d;
+    color: #f8fdff;
+}
+
+/* =========================================================
+   NETWORK — BLUE
+   ========================================================= */
+
+#network {
+    background: #0075bc;
+    color: #f8fdff;
+}
+
+/* =========================================================
+   BRIGHTNESS — PALE BLUE
+   ========================================================= */
+
+#backlight {
+    background: #b8e6f7;
+}
+
+/* =========================================================
+   VOLUME — CYAN
+   ========================================================= */
+
+#pulseaudio {
+    background: #24a9e8;
+}
+
+/* =========================================================
+   BATTERY — LIGHT / CLEAN
+   ========================================================= */
+
+#battery {
+    background: #f8fdff;
+}
+
+/* Battery warning */
+#battery.warning {
+    background: #b8e6f7;
+}
+
+/* Battery critical */
+#battery.critical {
+    background: #00334d;
+    color: #f8fdff;
+}
+
+/* Charging — blue */
+#battery.charging {
+    background: #0075bc;
+    color: #f8fdff;
+}
+
+/* =========================================================
+   TRAY — DEEP NAVY
+   ========================================================= */
+
+#tray {
+    background: #00334d;
+    color: #f8fdff;
+
+    padding-left: 13px;
+    padding-right: 13px;
+}
+
+/* =========================================================
+   TOOLTIP
+   ========================================================= */
+
+tooltip {
+    background: #f8fdff;
+    color: #00334d;
+
+    border: 4px solid #00334d;
+    border-radius: 0;
+
+    box-shadow: 5px 5px 0 #00334d;
+}
+
+tooltip label {
+    color: #00334d;
+}

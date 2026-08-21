@@ -1,0 +1,347 @@
+/* SwayNC — Linux Ocean (matches waybar / wofi)
+ * Tokens: #f8fdff #00334d #24a9e8 #0075bc #b8e6f7
+ */
+
+:root {
+  --cc-bg: #f8fdff;
+  --noti-border-color: #00334d;
+  --noti-bg: 248, 253, 255;
+  --noti-bg-alpha: 1;
+  --noti-bg-darker: #b8e6f7;
+  --noti-bg-hover: #b8e6f7;
+  --noti-bg-focus: #b8e6f7;
+  --noti-close-bg: #f8fdff;
+  --noti-close-bg-hover: #24a9e8;
+  --text-color: #00334d;
+  --text-color-disabled: #6a8fa3;
+  --bg-selected: #24a9e8;
+  --notification-icon-size: 96px;
+  --notification-app-icon-size: 16px;
+  --notification-group-icon-size: 24px;
+  --border: 4px solid #00334d;
+  --border-radius: 0;
+  --notification-shadow: 5px 5px 0 #00334d;
+  --font-size-body: 13px;
+  --font-size-summary: 13px;
+  --hover-tranistion: none;
+  --group-collapse-tranistion: none;
+  --hover-transition: none;
+  --group-collapse-transition: none;
+  --mpris-album-art-overlay: #00334d;
+  --mpris-button-hover: #24a9e8;
+  --mpris-album-art-icon-size: 72px;
+  --mpris-album-art-shadow: 5px 5px 0 #00334d;
+}
+
+@define-color cc-bg #f8fdff;
+@define-color noti-border-color #00334d;
+@define-color noti-bg #f8fdff;
+@define-color noti-bg-opaque #f8fdff;
+@define-color noti-bg-darker #b8e6f7;
+@define-color noti-bg-hover #b8e6f7;
+@define-color noti-bg-hover-opaque #b8e6f7;
+@define-color noti-bg-focus #b8e6f7;
+@define-color noti-close-bg #f8fdff;
+@define-color noti-close-bg-hover #24a9e8;
+@define-color text-color #00334d;
+@define-color text-color-disabled #6a8fa3;
+@define-color bg-selected #24a9e8;
+
+* {
+  font-family: "JetBrainsMono Nerd Font", monospace;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+notificationwindow,
+blankwindow,
+.blank-window,
+.floating-notifications {
+  background: transparent;
+}
+
+.close-button {
+  background: #f8fdff;
+  color: #00334d;
+  text-shadow: none;
+  padding: 0;
+  border-radius: 0;
+  margin-top: 8px;
+  margin-right: 8px;
+  box-shadow: none;
+  border: 4px solid #00334d;
+  min-width: 24px;
+  min-height: 24px;
+}
+
+.close-button:hover {
+  background: #24a9e8;
+  color: #00334d;
+  border: 4px solid #00334d;
+  box-shadow: none;
+}
+
+.notification-row {
+  background: none;
+  outline: none;
+}
+
+.notification-row .notification-background {
+  padding: 8px 12px;
+}
+
+.notification-row .notification-background .notification {
+  border-radius: 0;
+  border: 4px solid #00334d;
+  padding: 0;
+  background-color: #f8fdff;
+  box-shadow: 5px 5px 0 #00334d;
+}
+
+.notification.low,
+.notification.normal {
+  background-color: #f8fdff;
+}
+
+.notification.critical {
+  background-color: #24a9e8;
+}
+
+.notification-default-action {
+  padding: 8px;
+  margin: 0;
+  box-shadow: none;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  color: #00334d;
+}
+
+.notification-default-action:hover {
+  background: #b8e6f7;
+}
+
+.notification-content .image {
+  -gtk-icon-filter: none;
+  border-radius: 0;
+  margin: 8px 18px 8px 8px;
+  border: 4px solid #00334d;
+  box-shadow: 5px 5px 0 #00334d;
+}
+
+.notification-content .app-icon {
+  -gtk-icon-filter: none;
+  -gtk-icon-shadow: none;
+  margin: 6px;
+}
+
+.text-box label {
+  filter: none;
+}
+
+.text-box .summary,
+.text-box .time,
+.text-box .body {
+  background: transparent;
+  color: #00334d;
+  text-shadow: none;
+  font-weight: 900;
+}
+
+.notification.critical .summary,
+.notification.critical .time,
+.notification.critical .body {
+  color: #00334d;
+}
+
+.notification-content progressbar {
+  margin-top: 4px;
+}
+
+.inline-reply-entry {
+  background: #b8e6f7;
+  color: #00334d;
+  caret-color: #00334d;
+  border: 4px solid #00334d;
+  border-radius: 0;
+}
+
+.inline-reply-button {
+  margin-left: 4px;
+  background: #f8fdff;
+  border: 4px solid #00334d;
+  border-radius: 0;
+  color: #00334d;
+}
+
+.inline-reply-button:hover {
+  background: #24a9e8;
+}
+
+.notification-action > button {
+  border-radius: 0;
+  border: 4px solid #00334d;
+  background: #f8fdff;
+  color: #00334d;
+  box-shadow: none;
+}
+
+.notification-action > button:hover {
+  background: #24a9e8;
+}
+
+.notification-group-headers,
+.notification-group-buttons {
+  margin: 0 16px;
+  color: #00334d;
+}
+
+.notification-group-header,
+.notification-group-icon {
+  color: #00334d;
+}
+
+.control-center {
+  background: #f8fdff;
+  color: #00334d;
+  border-radius: 0;
+  border: 4px solid #00334d;
+  box-shadow: 5px 5px 0 #00334d;
+}
+
+.control-center-list-placeholder {
+  opacity: 1;
+  color: #00334d;
+}
+
+.control-center-list {
+  background: transparent;
+}
+
+.widget {
+  margin: 8px;
+  padding: 8px;
+  border-radius: 0;
+}
+
+.widget-title > label {
+  margin-right: 8px;
+  font-size: 13px;
+  color: #00334d;
+}
+
+.widget-title > button {
+  margin-left: 8px;
+  border-radius: 0;
+  border: 4px solid #00334d;
+  background: #f8fdff;
+  color: #00334d;
+  box-shadow: 5px 5px 0 #00334d;
+  padding: 4px 12px;
+}
+
+.widget-title > button:hover {
+  background: #24a9e8;
+}
+
+.widget-dnd label {
+  color: #00334d;
+  margin-right: 8px;
+  font-size: 13px;
+}
+
+.widget-dnd switch {
+  border-radius: 0;
+  border: 4px solid #00334d;
+  background: #b8e6f7;
+  box-shadow: 5px 5px 0 #00334d;
+  margin-left: 8px;
+}
+
+.widget-dnd switch:checked {
+  background: #24a9e8;
+}
+
+.widget-dnd switch slider {
+  border-radius: 0;
+  background: #f8fdff;
+  border: 2px solid #00334d;
+  min-width: 18px;
+  min-height: 18px;
+}
+
+/* Timeout countdown on floating toasts.
+ * GTK does not interpolate background-size, so drain by sliding
+ * a 200% two-tone strip via background-position (that does interpolate).
+ * Durations match config.json: low 7s, normal 8s. Critical stays put.
+ */
+@keyframes timeout-drain {
+  from {
+    background-position: 0% 100%;
+  }
+  to {
+    background-position: 100% 100%;
+  }
+}
+
+.floating-notifications .notification.low,
+.floating-notifications .notification.normal {
+  padding-bottom: 8px;
+  background-color: #f8fdff;
+  background-image: linear-gradient(
+    to right,
+    #24a9e8 0%,
+    #24a9e8 50%,
+    #b8e6f7 50%,
+    #b8e6f7 100%
+  );
+  background-repeat: no-repeat;
+  background-origin: padding-box;
+  background-clip: padding-box;
+  background-size: 200% 8px;
+  background-position: 0% 100%;
+  animation-name: timeout-drain;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+
+.floating-notifications .notification.low {
+  animation-duration: 7s;
+}
+
+.floating-notifications .notification.normal {
+  animation-duration: 8s;
+}
+
+.floating-notifications .notification.critical {
+  animation: none;
+  background-image: none;
+  padding-bottom: 0;
+}
+
+.control-center .notification {
+  animation: none;
+  background-image: none;
+  padding-bottom: 0;
+}
+
+.notification progressbar {
+  margin: 8px 8px 0 8px;
+  min-height: 8px;
+  border: 4px solid #00334d;
+  border-radius: 0;
+  background-color: #b8e6f7;
+}
+
+.notification progressbar trough {
+  min-height: 8px;
+  background-color: #b8e6f7;
+  border-radius: 0;
+  border: none;
+}
+
+.notification progressbar progress {
+  min-height: 8px;
+  background-color: #24a9e8;
+  border-radius: 0;
+}

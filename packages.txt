@@ -1,0 +1,36 @@
+# Ubuntu packages this setup uses. Install with:
+#   xargs -a packages.txt sudo apt install
+#
+# Lines starting with # are comments. Blank lines are ignored.
+
+hyprland
+hypridle
+hyprlock
+hyprpaper
+hyprpicker
+hyprland-guiutils
+xdg-desktop-portal-hyprland
+
+waybar
+wofi
+kitty
+sway-notification-center
+dolphin
+
+pipewire
+pipewire-pulse
+wireplumber
+pavucontrol
+pamixer
+playerctl
+brightnessctl
+
+grim
+slurp
+wl-clipboard
+
+network-manager
+polkitd
+xfce-polkit
+power-profiles-daemon
+neovim

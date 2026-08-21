@@ -1,0 +1,9 @@
+[user]
+	name = vvasa33
+	email = vvasa@terpmail.umd.edu
+[init]
+	defaultBranch = main
+[pull]
+	rebase = false
+[core]
+	editor = cursor

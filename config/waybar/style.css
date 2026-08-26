@@ -1,98 +1,86 @@
-/* =========================================================
-   NEO-BRUTALIST — LINUX OCEAN EDITION
-   Designed around the icy blue / navy wallpaper
-   ========================================================= */
+/* Linux Ocean — waybar
+   Tokens: #f8fdff surface · #00334d ink · #24a9e8 accent · #0075bc deep · #b8e6f7 wash
+   One accent. Workspaces + clock carry the hard offset; utilities share one flat strip. */
 
 * {
     font-family: "JetBrainsMono Nerd Font", monospace;
-    font-size: 13px;
-    font-weight: 900;
+    font-size: 12px;
+    font-weight: 700;
 }
-
-/* =========================================================
-   MAIN BAR
-   ========================================================= */
 
 window#waybar {
     background: transparent;
     color: #00334d;
 }
 
-/* Breathing room */
 .modules-left,
 .modules-center,
 .modules-right {
-    margin-top: 7px;
-    margin-bottom: 7px;
-    margin-right: 7px;
+    margin-top: 8px;
+    margin-bottom: 6px;
 }
 
-/* =========================================================
-   WORKSPACES
-   ========================================================= */
+/* ---- Workspaces: only left-side hard stamps ---- */
 
 #workspaces {
-    margin-left: 12px;
+    margin-left: 10px;
 }
 
 #workspaces button {
-    min-width: 32px;
-    min-height: 28px;
-
-    padding: 0 11px;
-    margin-right: 7px;
+    min-width: 28px;
+    min-height: 26px;
+    padding: 0 10px;
+    margin-right: 6px;
 
     background: #f8fdff;
     color: #00334d;
-
-    border: 4px solid #00334d;
+    border: 3px solid #00334d;
     border-radius: 0;
-
-    box-shadow: 5px 5px 0 #00334d;
+    box-shadow: 3px 3px 0 #00334d;
 }
 
-/* Cyan hover */
 #workspaces button:hover {
-    background: #24a9e8;
-    color: #00334d;
+    background: #b8e6f7;
 }
 
-/* Active workspace — deep navy like the wallpaper shapes */
 #workspaces button.active {
     background: #00334d;
     color: #f8fdff;
-
-    border: 4px solid #00334d;
-    box-shadow: 5px 5px 0 #0075bc;
+    box-shadow: 3px 3px 0 #24a9e8;
 }
 
-/* Empty workspaces */
 #workspaces button.empty {
-    background: #b8e6f7;
-    color: #00334d;
+    background: #f8fdff;
+    color: #6a8fa3;
+    box-shadow: 2px 2px 0 #00334d;
 }
 
-/* =========================================================
-   CENTER — CLOCK
-   ========================================================= */
+/* ---- Clock: single accent module ---- */
 
 #clock {
-    min-height: 28px;
-
+    min-height: 26px;
     padding: 0 14px;
 
     background: #24a9e8;
     color: #00334d;
-
-    border: 4px solid #00334d;
+    border: 3px solid #00334d;
     border-radius: 0;
-
-    box-shadow: 5px 5px 0 #00334d;
+    box-shadow: 3px 3px 0 #00334d;
 }
 
-/* =========================================================
-   RIGHT-SIDE UTILITIES
-   ========================================================= */
+#clock:hover {
+    background: #0075bc;
+    color: #f8fdff;
+}
+
+/* ---- Right utilities: one joined strip, no per-module cards ---- */
+
+.modules-right {
+    margin-right: 10px;
+    background: #f8fdff;
+    border: 3px solid #00334d;
+    box-shadow: 3px 3px 0 #00334d;
+}
 
 #mpris,
 #network,
@@ -100,109 +88,74 @@ window#waybar {
 #pulseaudio,
 #battery,
 #tray {
-    min-height: 28px;
-
-    padding: 0 13px;
-    margin-left: 7px;
-
+    min-height: 26px;
+    padding: 0 12px;
+    margin: 0;
+    background: transparent;
     color: #00334d;
-
-    border: 4px solid #00334d;
+    border: none;
     border-radius: 0;
-
-    box-shadow: 5px 5px 0 #00334d;
+    box-shadow: none;
 }
 
-/* =========================================================
-   NOW PLAYING
-   ========================================================= */
-
 #mpris {
-    background: #b8e6f7;
-    color: #00334d;
+    color: #0075bc;
 }
 
 #mpris.paused {
-    background: #00334d;
-    color: #f8fdff;
+    color: #6a8fa3;
 }
-
-/* =========================================================
-   NETWORK — BLUE
-   ========================================================= */
 
 #network {
-    background: #0075bc;
-    color: #f8fdff;
+    border-left: 2px solid #00334d;
 }
-
-/* =========================================================
-   BRIGHTNESS — PALE BLUE
-   ========================================================= */
 
 #backlight {
-    background: #b8e6f7;
+    border-left: 2px solid #00334d;
 }
-
-/* =========================================================
-   VOLUME — CYAN
-   ========================================================= */
 
 #pulseaudio {
-    background: #24a9e8;
+    border-left: 2px solid #00334d;
 }
-
-/* =========================================================
-   BATTERY — LIGHT / CLEAN
-   ========================================================= */
 
 #battery {
-    background: #f8fdff;
+    border-left: 2px solid #00334d;
 }
 
-/* Battery warning */
 #battery.warning {
-    background: #b8e6f7;
+    color: #0075bc;
 }
 
-/* Battery critical */
 #battery.critical {
     background: #00334d;
     color: #f8fdff;
 }
 
-/* Charging — blue */
 #battery.charging {
-    background: #0075bc;
-    color: #f8fdff;
+    color: #0075bc;
 }
-
-/* =========================================================
-   TRAY — DEEP NAVY
-   ========================================================= */
 
 #tray {
+    border-left: 2px solid #00334d;
     background: #00334d;
     color: #f8fdff;
-
-    padding-left: 13px;
-    padding-right: 13px;
+    padding-left: 10px;
+    padding-right: 10px;
 }
 
-/* =========================================================
-   TOOLTIP
-   ========================================================= */
+/* ---- Tooltip ---- */
 
 tooltip {
     background: #f8fdff;
     color: #00334d;
-
-    border: 4px solid #00334d;
+    border: 3px solid #00334d;
     border-radius: 0;
-
-    box-shadow: 5px 5px 0 #00334d;
+    box-shadow: 3px 3px 0 #00334d;
+    padding: 8px 10px;
 }
 
 tooltip label {
     color: #00334d;
+    font-family: "JetBrainsMono Nerd Font", monospace;
+    font-weight: 700;
 }

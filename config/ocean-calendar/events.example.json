@@ -1,0 +1,28 @@
+{
+  "events": [
+    {
+      "id": "sample-standup",
+      "title": "Standup",
+      "start": "2026-08-31T09:00:00",
+      "end": "2026-08-31T09:30:00",
+      "all_day": false,
+      "calendar": "Work"
+    },
+    {
+      "id": "sample-dentist",
+      "title": "Dentist",
+      "start": "2026-08-31T14:30:00",
+      "end": "2026-08-31T15:15:00",
+      "all_day": false,
+      "calendar": "Personal"
+    },
+    {
+      "id": "sample-flight",
+      "title": "Flight",
+      "start": "2026-09-02",
+      "end": "2026-09-03",
+      "all_day": true,
+      "calendar": "Personal"
+    }
+  ]
+}

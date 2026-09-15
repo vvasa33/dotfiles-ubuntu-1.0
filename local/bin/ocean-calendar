@@ -1,0 +1,1082 @@
+#!/usr/bin/env python3
+"""ocean-calendar — Linux Ocean month overlay for Hyprland.
+
+Hidden until the Waybar clock toggles it. Anchored top-center under Waybar.
+Tokens match waybar/wofi/notepad: #f8fdff #00334d #24a9e8 #0075bc #b8e6f7
+"""
+
+from __future__ import annotations
+
+import calendar
+import fcntl
+import json
+import os
+import socket
+import sys
+import time
+import urllib.error
+import urllib.request
+from calendar import Calendar
+from ctypes import CDLL
+from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any
+
+CDLL("libgtk-layer-shell.so.0")
+
+import gi
+
+gi.require_version("Gtk", "3.0")
+gi.require_version("Gdk", "3.0")
+gi.require_version("GtkLayerShell", "0.1")
+
+from gi.repository import Gdk, GLib, Gtk  # noqa: E402
+from gi.repository import GtkLayerShell as LayerShell  # noqa: E402
+
+XDG_DATA = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share"))
+XDG_CACHE = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
+XDG_CONFIG = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
+
+DATA_DIR = XDG_DATA / "ocean-calendar"
+CACHE_DIR = XDG_CACHE / "ocean-calendar"
+CONFIG_DIR = XDG_CONFIG / "ocean-calendar"
+LOCAL_EVENTS = DATA_DIR / "events.json"
+CACHE_EVENTS = CACHE_DIR / "ics-events.json"
+CONFIG_PATH = CONFIG_DIR / "config.json"
+SOCK_PATH = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "ocean-calendar.sock"
+LOCK_PATH = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "ocean-calendar.lock"
+_HERE = Path(__file__).resolve()
+STYLE_CANDIDATES = [
+    CONFIG_DIR / "style.css",
+    _HERE.parent.parent.parent / "config" / "ocean-calendar" / "style.css",
+]
+EXAMPLE_EVENTS = _HERE.parent.parent.parent / "config" / "ocean-calendar" / "events.example.json"
+EXAMPLE_CONFIG = _HERE.parent.parent.parent / "config" / "ocean-calendar" / "config.example.json"
+
+SYNC_MS_DEFAULT = 15 * 60 * 1000
+MARGIN_TOP = 6
+WEEKDAYS = ("S", "M", "T", "W", "T", "F", "S")
+BYDAY_MAP = {"MO": 0, "TU": 1, "WE": 2, "TH": 3, "FR": 4, "SA": 5, "SU": 6}
+
+BUILTIN_CSS = b"""
+window.ocean-calendar { background-color: rgba(0, 51, 77, 0.04); }
+eventbox { background-color: transparent; }
+box.cal-root {
+  background-color: #f8fdff;
+  color: #00334d;
+  border: 4px solid #00334d;
+  border-radius: 0;
+  box-shadow: 5px 5px 0 #00334d;
+  margin: 0 6px 6px 0;
+}
+box.cal-header {
+  background-color: #24a9e8;
+  color: #00334d;
+  border-bottom: 4px solid #00334d;
+  min-height: 36px;
+}
+label.cal-title {
+  font-family: "JetBrainsMono Nerd Font", monospace;
+  font-size: 12px;
+  font-weight: 900;
+  color: #00334d;
+}
+button.cal-nav, button.cal-hide {
+  min-width: 40px;
+  min-height: 36px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 0;
+  font-family: "JetBrainsMono Nerd Font", monospace;
+  font-size: 11px;
+  font-weight: 900;
+}
+button.cal-nav { background-color: #24a9e8; color: #00334d; }
+button.cal-nav:hover { background-color: #0075bc; color: #f8fdff; }
+button.cal-hide {
+  border-left: 4px solid #00334d;
+  background-color: #00334d;
+  color: #f8fdff;
+}
+button.cal-hide:hover { background-color: #0075bc; color: #f8fdff; }
+label.cal-weekday {
+  font-family: "JetBrainsMono Nerd Font", monospace;
+  font-size: 11px;
+  font-weight: 900;
+  color: #0075bc;
+}
+button.cal-day {
+  min-width: 42px;
+  min-height: 46px;
+  margin: 2px;
+  border: 2px solid transparent;
+  border-radius: 0;
+  background-color: #f8fdff;
+  color: #00334d;
+  font-family: "JetBrainsMono Nerd Font", monospace;
+  font-size: 12px;
+  font-weight: 700;
+}
+button.cal-day.out { color: #6a8fa3; }
+button.cal-day.today { background-color: #00334d; color: #f8fdff; border: 2px solid #00334d; }
+button.cal-day.selected {
+  background-color: #24a9e8;
+  color: #00334d;
+  border: 2px solid #00334d;
+  box-shadow: 3px 3px 0 #00334d;
+}
+box.cal-dot {
+  min-width: 6px;
+  min-height: 6px;
+  background-color: #24a9e8;
+}
+box.cal-dot.empty { background-color: transparent; }
+button.cal-day.today box.cal-dot, button.cal-day.selected box.cal-dot {
+  background-color: #f8fdff;
+}
+label.cal-status {
+  background-color: #b8e6f7;
+  color: #00334d;
+  border-top: 4px solid #00334d;
+  min-height: 26px;
+  padding: 4px 12px;
+  font-family: "JetBrainsMono Nerd Font", monospace;
+  font-size: 11px;
+  font-weight: 700;
+}
+"""
+
+
+class Event:
+    __slots__ = ("id", "title", "start", "end", "all_day", "calendar")
+
+    def __init__(
+        self,
+        id: str,
+        title: str,
+        start: datetime,
+        end: datetime,
+        all_day: bool,
+        calendar: str = "",
+    ) -> None:
+        self.id = id
+        self.title = title
+        self.start = start
+        self.end = end
+        self.all_day = all_day
+        self.calendar = calendar
+
+    def dates(self) -> list[date]:
+        start_d = self.start.date()
+        end_d = self.end.date()
+        if self.all_day:
+            last = end_d - timedelta(days=1) if end_d > start_d else start_d
+        else:
+            last = end_d if self.end.time() != datetime.min.time() else end_d - timedelta(days=1)
+            if last < start_d:
+                last = start_d
+        out: list[date] = []
+        cur = start_d
+        while cur <= last:
+            out.append(cur)
+            cur += timedelta(days=1)
+        return out
+
+    def on_date(self, day: date) -> bool:
+        return day in self.dates()
+
+    def sort_key(self) -> tuple[int, datetime]:
+        return (0 if self.all_day else 1, self.start)
+
+    def time_label(self) -> str:
+        if self.all_day:
+            return "ALL DAY"
+        return self.start.strftime("%-I:%M %p")
+
+
+def parse_iso(value: str, all_day: bool) -> datetime:
+    raw = value.strip()
+    if all_day or len(raw) == 10:
+        return datetime.strptime(raw[:10], "%Y-%m-%d")
+    if raw.endswith("Z"):
+        dt = datetime.strptime(raw[:19], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc)
+        return dt.astimezone().replace(tzinfo=None)
+    if "T" in raw:
+        body = raw[:19]
+        if len(body) == 16:
+            body += ":00"
+        return datetime.strptime(body, "%Y-%m-%dT%H:%M:%S")
+    return datetime.strptime(raw[:10], "%Y-%m-%d")
+
+
+def event_from_dict(item: dict[str, Any]) -> Event | None:
+    try:
+        all_day = bool(item.get("all_day"))
+        start = parse_iso(str(item["start"]), all_day)
+        end_raw = item.get("end")
+        if end_raw:
+            end = parse_iso(str(end_raw), all_day)
+        elif all_day:
+            end = start + timedelta(days=1)
+        else:
+            end = start + timedelta(hours=1)
+        return Event(
+            id=str(item.get("id") or item.get("title") or "event"),
+            title=str(item.get("title") or "(no title)"),
+            start=start,
+            end=end,
+            all_day=all_day,
+            calendar=str(item.get("calendar") or ""),
+        )
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def load_json_events(path: Path) -> list[Event]:
+    if not path.is_file():
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    items = data.get("events", data if isinstance(data, list) else [])
+    out: list[Event] = []
+    if not isinstance(items, list):
+        return []
+    for item in items:
+        if isinstance(item, dict):
+            ev = event_from_dict(item)
+            if ev is not None:
+                out.append(ev)
+    return out
+
+
+def unfold_ics(text: str) -> list[str]:
+    lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    out: list[str] = []
+    for line in lines:
+        if line.startswith((" ", "\t")) and out:
+            out[-1] += line[1:]
+        else:
+            out.append(line)
+    return out
+
+
+def split_ics_line(line: str) -> tuple[str, dict[str, str], str] | None:
+    if ":" not in line:
+        return None
+    meta, value = line.split(":", 1)
+    parts = meta.split(";")
+    name = parts[0].upper()
+    params: dict[str, str] = {}
+    for part in parts[1:]:
+        if "=" in part:
+            key, val = part.split("=", 1)
+            params[key.upper()] = val
+    return name, params, value
+
+
+def unescape_ics(value: str) -> str:
+    return (
+        value.replace("\\n", "\n")
+        .replace("\\,", ",")
+        .replace("\\;", ";")
+        .replace("\\\\", "\\")
+    )
+
+
+def parse_ics_dt(value: str, params: dict[str, str]) -> tuple[datetime, bool]:
+    raw = value.strip()
+    is_date = params.get("VALUE") == "DATE" or ("T" not in raw and len(raw) >= 8)
+    if is_date:
+        return datetime.strptime(raw[:8], "%Y%m%d"), True
+    if raw.endswith("Z"):
+        dt = datetime.strptime(raw[:15], "%Y%m%dT%H%M%S").replace(tzinfo=timezone.utc)
+        return dt.astimezone().replace(tzinfo=None), False
+    body = raw[:15]
+    if len(body) == 8:
+        return datetime.strptime(body, "%Y%m%d"), True
+    return datetime.strptime(body, "%Y%m%dT%H%M%S"), False
+
+
+def parse_rrule(raw: str) -> dict[str, str]:
+    rules: dict[str, str] = {}
+    for part in raw.split(";"):
+        if "=" in part:
+            key, val = part.split("=", 1)
+            rules[key.upper()] = val
+    return rules
+
+
+def parse_until(value: str) -> datetime:
+    if value.endswith("Z"):
+        dt = datetime.strptime(value[:15], "%Y%m%dT%H%M%S").replace(tzinfo=timezone.utc)
+        return dt.astimezone().replace(tzinfo=None)
+    if "T" in value:
+        return datetime.strptime(value[:15], "%Y%m%dT%H%M%S")
+    return datetime.strptime(value[:8], "%Y%m%d")
+
+
+def expand_rrule(
+    start: datetime,
+    duration: timedelta,
+    rrule: dict[str, str],
+    exdates: set[datetime],
+    window_start: datetime,
+    window_end: datetime,
+) -> list[tuple[datetime, datetime]]:
+    freq = rrule.get("FREQ", "DAILY").upper()
+    interval = int(rrule.get("INTERVAL", "1") or 1)
+    count = int(rrule["COUNT"]) if "COUNT" in rrule else None
+    until = parse_until(rrule["UNTIL"]) if "UNTIL" in rrule else window_end
+    byday = [BYDAY_MAP[d] for d in rrule.get("BYDAY", "").split(",") if d in BYDAY_MAP]
+    hits: list[tuple[datetime, datetime]] = []
+    seen = 0
+    cursor = start
+    guard = 0
+    while guard < 800:
+        guard += 1
+        if cursor > until and freq != "WEEKLY":
+            break
+        if count is not None and seen >= count:
+            break
+        if cursor > window_end + timedelta(days=8):
+            break
+
+        candidates: list[datetime]
+        if freq == "WEEKLY" and byday:
+            week_start = cursor - timedelta(days=cursor.weekday())
+            candidates = []
+            for wd in byday:
+                day = week_start + timedelta(days=wd)
+                day = datetime.combine(day.date(), start.time())
+                if day >= start:
+                    candidates.append(day)
+            cursor = week_start + timedelta(weeks=interval)
+        elif freq == "DAILY":
+            candidates = [cursor]
+            cursor = cursor + timedelta(days=interval)
+        elif freq == "WEEKLY":
+            candidates = [cursor]
+            cursor = cursor + timedelta(weeks=interval)
+        elif freq == "MONTHLY":
+            candidates = [cursor]
+            month = cursor.month - 1 + interval
+            year = cursor.year + month // 12
+            month = month % 12 + 1
+            day = min(start.day, calendar.monthrange(year, month)[1])
+            cursor = cursor.replace(year=year, month=month, day=day)
+        elif freq == "YEARLY":
+            candidates = [cursor]
+            try:
+                cursor = cursor.replace(year=cursor.year + interval)
+            except ValueError:
+                cursor = cursor.replace(year=cursor.year + interval, day=28)
+        else:
+            candidates = [cursor]
+            cursor = cursor + timedelta(days=interval)
+
+        for occ in candidates:
+            if occ < start:
+                continue
+            if occ > until:
+                continue
+            if count is not None and seen >= count:
+                break
+            seen += 1
+            occ_end = occ + duration
+            if occ_end < window_start or occ > window_end:
+                continue
+            stamp = occ.replace(microsecond=0)
+            if stamp in exdates or occ in exdates:
+                continue
+            hits.append((occ, occ_end))
+        if freq == "WEEKLY" and byday and cursor > until + timedelta(days=7):
+            break
+    return hits
+
+
+def parse_ics(text: str, calendar_name: str, window_start: datetime, window_end: datetime) -> list[Event]:
+    events: list[Event] = []
+    current: dict[str, Any] | None = None
+    uid_n = 0
+    for line in unfold_ics(text):
+        parsed = split_ics_line(line)
+        if parsed is None:
+            continue
+        name, params, value = parsed
+        if name == "BEGIN" and value.upper() == "VEVENT":
+            current = {"params": {}, "exdates": set()}
+            continue
+        if current is None:
+            continue
+        if name == "END" and value.upper() == "VEVENT":
+            uid_n += 1
+            start_info = current.get("DTSTART")
+            if start_info is None:
+                current = None
+                continue
+            start, all_day = start_info
+            if current.get("DTEND"):
+                end, end_all = current["DTEND"]
+                all_day = all_day or end_all
+            elif current.get("DURATION"):
+                end = start + current["DURATION"]
+            elif all_day:
+                end = start + timedelta(days=1)
+            else:
+                end = start + timedelta(hours=1)
+            duration = end - start
+            title = unescape_ics(str(current.get("SUMMARY") or "(no title)"))
+            uid = str(current.get("UID") or f"ics-{uid_n}")
+            rrule = current.get("RRULE")
+            occurrences: list[tuple[datetime, datetime]]
+            if rrule:
+                occurrences = expand_rrule(
+                    start, duration, rrule, current["exdates"], window_start, window_end
+                )
+            else:
+                if end < window_start or start > window_end:
+                    occurrences = []
+                else:
+                    occurrences = [(start, end)]
+            for idx, (occ_s, occ_e) in enumerate(occurrences):
+                events.append(
+                    Event(
+                        id=f"{uid}:{idx}",
+                        title=title,
+                        start=occ_s,
+                        end=occ_e,
+                        all_day=all_day,
+                        calendar=calendar_name,
+                    )
+                )
+            current = None
+            continue
+        if name == "DTSTART":
+            current["DTSTART"] = parse_ics_dt(value, params)
+        elif name == "DTEND":
+            current["DTEND"] = parse_ics_dt(value, params)
+        elif name == "DURATION":
+            current["DURATION"] = parse_duration(value)
+        elif name == "SUMMARY":
+            current["SUMMARY"] = value
+        elif name == "UID":
+            current["UID"] = value
+        elif name == "RRULE":
+            current["RRULE"] = parse_rrule(value)
+        elif name == "EXDATE":
+            dt, _ = parse_ics_dt(value.split(",")[0], params)
+            current["exdates"].add(dt.replace(microsecond=0))
+            for extra in value.split(",")[1:]:
+                dt2, _ = parse_ics_dt(extra, params)
+                current["exdates"].add(dt2.replace(microsecond=0))
+    return events
+
+
+def parse_duration(value: str) -> timedelta:
+    raw = value.strip().upper()
+    sign = -1 if raw.startswith("-") else 1
+    if raw.startswith(("+", "-")):
+        raw = raw[1:]
+    if raw.startswith("P"):
+        raw = raw[1:]
+    days = hours = minutes = seconds = 0
+    num = ""
+    in_time = False
+    for ch in raw:
+        if ch == "T":
+            in_time = True
+            continue
+        if ch.isdigit():
+            num += ch
+            continue
+        n = int(num or "0")
+        num = ""
+        if ch == "D":
+            days = n
+        elif ch == "W":
+            days = n * 7
+        elif ch == "H":
+            hours = n
+        elif ch == "M":
+            minutes = n
+        elif ch == "S":
+            seconds = n
+    return sign * timedelta(days=days, hours=hours, minutes=minutes, seconds=seconds)
+
+
+def load_config() -> dict[str, Any]:
+    path = CONFIG_PATH
+    if not path.is_file() and EXAMPLE_CONFIG.is_file():
+        return {}
+    if not path.is_file():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def ics_urls(cfg: dict[str, Any]) -> list[str]:
+    urls = cfg.get("ics_urls") or []
+    if not isinstance(urls, list):
+        return []
+    out: list[str] = []
+    for item in urls:
+        if isinstance(item, str):
+            url = item.strip()
+            if url and "PASTE_SECRET" not in url and url.startswith(("http://", "https://")):
+                out.append(url)
+    return out
+
+
+def fetch_url(url: str) -> str:
+    req = urllib.request.Request(
+        url,
+        headers={"User-Agent": "ocean-calendar/1.0"},
+        method="GET",
+    )
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        return resp.read().decode("utf-8", errors="replace")
+
+
+def month_window(year: int, month: int) -> tuple[datetime, datetime]:
+    start = datetime(year, month, 1)
+    if month == 12:
+        end = datetime(year + 1, 1, 1) - timedelta(seconds=1)
+    else:
+        end = datetime(year, month + 1, 1) - timedelta(seconds=1)
+    pad_start = start - timedelta(days=7)
+    pad_end = end + timedelta(days=14)
+    return pad_start, pad_end
+
+
+def ensure_local_events() -> None:
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    if LOCAL_EVENTS.is_file():
+        return
+    if EXAMPLE_EVENTS.is_file():
+        LOCAL_EVENTS.write_text(EXAMPLE_EVENTS.read_text(encoding="utf-8"), encoding="utf-8")
+        return
+    LOCAL_EVENTS.write_text('{"events": []}\n', encoding="utf-8")
+
+
+def load_css() -> None:
+    screen = Gdk.Screen.get_default()
+    if screen is None:
+        return
+    builtin = Gtk.CssProvider()
+    builtin.load_from_data(BUILTIN_CSS)
+    Gtk.StyleContext.add_provider_for_screen(
+        screen, builtin, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+    )
+    for path in STYLE_CANDIDATES:
+        if path.is_file():
+            extra = Gtk.CssProvider()
+            try:
+                extra.load_from_path(str(path))
+            except GLib.Error:
+                continue
+            Gtk.StyleContext.add_provider_for_screen(
+                screen, extra, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION + 1
+            )
+            break
+
+
+def send_cmd(cmd: str) -> bool:
+    try:
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.settimeout(0.4)
+        sock.connect(str(SOCK_PATH))
+        sock.sendall((cmd + "\n").encode())
+        sock.close()
+        return True
+    except OSError:
+        return False
+
+
+def try_lock():
+    lockf = open(LOCK_PATH, "w")
+    try:
+        fcntl.flock(lockf, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        lockf.close()
+        return None
+    lockf.write(str(os.getpid()))
+    lockf.flush()
+    return lockf
+
+
+class CalendarOverlay:
+    def __init__(self, start_shown: bool) -> None:
+        today = date.today()
+        self.year = today.year
+        self.month = today.month
+        self.selected = today
+        self.shown = False
+        self.listen: socket.socket | None = None
+        self.events: list[Event] = []
+        self.status_text = "local"
+        self.last_sync: datetime | None = None
+        self.last_error = ""
+        self.title: Gtk.Label | None = None
+        self.status: Gtk.Label | None = None
+        self.grid: Gtk.Grid | None = None
+        self.day_head: Gtk.Label | None = None
+        self.event_box: Gtk.Box | None = None
+        self.panel: Gtk.Box | None = None
+        self.day_buttons: list[Gtk.Button] = []
+        ensure_local_events()
+        CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        load_css()
+        self.reload_events(sync_net=False)
+        self.win = self.build()
+        self.setup_socket()
+        self.paint()
+        cfg = load_config()
+        minutes = cfg.get("sync_minutes", 15)
+        try:
+            minutes_i = int(minutes)
+        except (TypeError, ValueError):
+            minutes_i = 15
+        GLib.timeout_add(max(1, minutes_i) * 60 * 1000, self.on_timer)
+        if start_shown:
+            self.show_pad()
+        else:
+            self.hide_pad()
+
+    def build(self) -> Gtk.Window:
+        win = Gtk.Window(title="Calendar", type=Gtk.WindowType.TOPLEVEL)
+        win.set_decorated(False)
+        win.set_resizable(False)
+        win.set_skip_taskbar_hint(True)
+        win.set_app_paintable(True)
+        win.get_style_context().add_class("ocean-calendar")
+
+        LayerShell.init_for_window(win)
+        LayerShell.set_namespace(win, "ocean-calendar")
+        LayerShell.set_layer(win, LayerShell.Layer.OVERLAY)
+        LayerShell.set_anchor(win, LayerShell.Edge.TOP, True)
+        LayerShell.set_anchor(win, LayerShell.Edge.LEFT, True)
+        LayerShell.set_anchor(win, LayerShell.Edge.RIGHT, True)
+        LayerShell.set_anchor(win, LayerShell.Edge.BOTTOM, True)
+        LayerShell.set_margin(win, LayerShell.Edge.TOP, MARGIN_TOP)
+        LayerShell.set_exclusive_zone(win, 0)
+        if hasattr(LayerShell, "set_keyboard_mode"):
+            LayerShell.set_keyboard_mode(win, LayerShell.KeyboardMode.ON_DEMAND)
+        else:
+            LayerShell.set_keyboard_interactivity(win, True)
+
+        shell = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        shell.set_halign(Gtk.Align.FILL)
+        shell.set_valign(Gtk.Align.FILL)
+        shell.set_hexpand(True)
+        shell.set_vexpand(True)
+
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+        row.set_halign(Gtk.Align.CENTER)
+        row.set_valign(Gtk.Align.START)
+
+        panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        panel.get_style_context().add_class("cal-root")
+        panel.connect("button-press-event", lambda *_: True)
+
+        header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+        header.get_style_context().add_class("cal-header")
+
+        prev_btn = Gtk.Button(label="<")
+        prev_btn.set_relief(Gtk.ReliefStyle.NONE)
+        prev_btn.get_style_context().add_class("cal-nav")
+        prev_btn.connect("clicked", lambda *_: self.shift_month(-1))
+
+        title = Gtk.Label(label="", xalign=0.5)
+        title.set_hexpand(True)
+        title.get_style_context().add_class("cal-title")
+
+        next_btn = Gtk.Button(label=">")
+        next_btn.set_relief(Gtk.ReliefStyle.NONE)
+        next_btn.get_style_context().add_class("cal-nav")
+        next_btn.connect("clicked", lambda *_: self.shift_month(1))
+
+        hide_btn = Gtk.Button(label="HIDE")
+        hide_btn.set_relief(Gtk.ReliefStyle.NONE)
+        hide_btn.get_style_context().add_class("cal-hide")
+        hide_btn.connect("clicked", lambda *_: self.hide_pad())
+
+        header.pack_start(prev_btn, False, False, 0)
+        header.pack_start(title, True, True, 0)
+        header.pack_start(next_btn, False, False, 0)
+        header.pack_end(hide_btn, False, False, 0)
+
+        weekdays = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+        weekdays.get_style_context().add_class("cal-weekdays")
+        weekdays.set_homogeneous(True)
+        for name in WEEKDAYS:
+            lab = Gtk.Label(label=name)
+            lab.get_style_context().add_class("cal-weekday")
+            weekdays.pack_start(lab, True, True, 0)
+
+        grid = Gtk.Grid()
+        grid.get_style_context().add_class("cal-grid")
+        grid.set_column_homogeneous(True)
+        grid.set_row_homogeneous(True)
+        grid.set_column_spacing(0)
+        grid.set_row_spacing(0)
+
+        cells: list[Gtk.Button] = []
+        for i in range(42):
+            btn = Gtk.Button()
+            btn.set_relief(Gtk.ReliefStyle.NONE)
+            btn.get_style_context().add_class("cal-day")
+            inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+            inner.set_halign(Gtk.Align.CENTER)
+            inner.set_valign(Gtk.Align.CENTER)
+            num = Gtk.Label(label="")
+            num.get_style_context().add_class("cal-day-num")
+            dot = Gtk.Box()
+            dot.get_style_context().add_class("cal-dot")
+            inner.pack_start(num, False, False, 0)
+            inner.pack_start(dot, False, False, 0)
+            btn.add(inner)
+            r, c = divmod(i, 7)
+            grid.attach(btn, c, r, 1, 1)
+            btn.connect("clicked", self.on_day_clicked, i)
+            cells.append(btn)
+
+        events_wrap = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        events_wrap.get_style_context().add_class("cal-events")
+        day_head = Gtk.Label(label="", xalign=0.0)
+        day_head.get_style_context().add_class("cal-day-head")
+        scroll = Gtk.ScrolledWindow()
+        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroll.set_min_content_height(96)
+        scroll.set_max_content_height(140)
+        scroll.get_style_context().add_class("cal-scroll")
+        event_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        scroll.add(event_box)
+        events_wrap.pack_start(day_head, False, False, 0)
+        events_wrap.pack_start(scroll, True, True, 0)
+
+        status = Gtk.Label(label="local", xalign=0.0)
+        status.get_style_context().add_class("cal-status")
+
+        panel.pack_start(header, False, False, 0)
+        panel.pack_start(weekdays, False, False, 0)
+        panel.pack_start(grid, False, False, 0)
+        panel.pack_start(events_wrap, False, False, 0)
+        panel.pack_start(status, False, False, 0)
+
+        row.pack_start(panel, False, False, 0)
+        shell.pack_start(row, False, False, 0)
+        filler = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        filler.set_vexpand(True)
+        filler.set_hexpand(True)
+        shell.pack_start(filler, True, True, 0)
+        win.add(shell)
+
+        win.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+        win.connect("button-press-event", self.on_backdrop)
+        win.connect("key-press-event", self.on_key)
+        win.connect("delete-event", self.on_close)
+
+        self.title = title
+        self.status = status
+        self.grid = grid
+        self.day_head = day_head
+        self.event_box = event_box
+        self.panel = panel
+        self.day_buttons = cells
+        for btn in cells:
+            inner = btn.get_child()
+            setattr(btn, "_num", inner.get_children()[0])
+            setattr(btn, "_dot", inner.get_children()[1])
+        return win
+
+    def setup_socket(self) -> None:
+        if SOCK_PATH.exists():
+            SOCK_PATH.unlink()
+        listen = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        listen.bind(str(SOCK_PATH))
+        listen.listen(4)
+        listen.setblocking(False)
+        self.listen = listen
+        GLib.io_add_watch(listen.fileno(), GLib.IO_IN, self.on_socket)
+
+    def on_socket(self, _fd, _cond) -> bool:
+        if self.listen is None:
+            return False
+        try:
+            conn, _ = self.listen.accept()
+        except BlockingIOError:
+            return True
+        try:
+            data = conn.recv(64).decode(errors="ignore").strip()
+        finally:
+            conn.close()
+        if data == "toggle":
+            self.toggle()
+        elif data == "show":
+            self.show_pad()
+        elif data == "hide":
+            self.hide_pad()
+        elif data == "sync":
+            self.reload_events(sync_net=True)
+            self.paint()
+        return True
+
+    def on_key(self, _win, event) -> bool:
+        if event.keyval == Gdk.KEY_Escape:
+            self.hide_pad()
+            return True
+        if event.keyval == Gdk.KEY_Left:
+            self.shift_month(-1)
+            return True
+        if event.keyval == Gdk.KEY_Right:
+            self.shift_month(1)
+            return True
+        return False
+
+    def on_close(self, *_args) -> bool:
+        self.hide_pad()
+        return True
+
+    def on_backdrop(self, _box, event) -> bool:
+        if self.panel is None:
+            return False
+        alloc = self.panel.get_allocation()
+        ox, oy = self.panel.translate_coordinates(self.win, 0, 0)
+        if ox is None:
+            ox, oy = alloc.x, alloc.y
+        x, y = int(event.x), int(event.y)
+        inside = ox <= x <= ox + alloc.width and oy <= y <= oy + alloc.height
+        if not inside:
+            self.hide_pad()
+            return True
+        return False
+
+    def on_day_clicked(self, _btn, index: int) -> None:
+        weeks = Calendar(firstweekday=6).monthdatescalendar(self.year, self.month)
+        while len(weeks) < 6:
+            last = weeks[-1][-1] + timedelta(days=1)
+            weeks.append([last + timedelta(days=i) for i in range(7)])
+        weeks = weeks[:6]
+        r, c = divmod(index, 7)
+        self.selected = weeks[r][c]
+        if self.selected.month != self.month or self.selected.year != self.year:
+            self.year = self.selected.year
+            self.month = self.selected.month
+        self.paint()
+
+    def shift_month(self, delta: int) -> None:
+        month = self.month - 1 + delta
+        year = self.year + month // 12
+        month = month % 12 + 1
+        self.year = year
+        self.month = month
+        last = calendar.monthrange(year, month)[1]
+        day = min(self.selected.day, last)
+        self.selected = date(year, month, day)
+        self.paint()
+
+    def on_timer(self) -> bool:
+        self.reload_events(sync_net=True)
+        if self.shown:
+            self.paint()
+        else:
+            self.update_status()
+        return True
+
+    def reload_events(self, sync_net: bool) -> None:
+        ensure_local_events()
+        local = load_json_events(LOCAL_EVENTS)
+        cached = load_json_events(CACHE_EVENTS)
+        cfg = load_config()
+        urls = ics_urls(cfg)
+        if sync_net and urls:
+            win_s, win_e = month_window(self.year, self.month)
+            fetched: list[Event] = []
+            error = ""
+            for i, url in enumerate(urls):
+                try:
+                    text = fetch_url(url)
+                    fetched.extend(parse_ics(text, f"Google {i + 1}" if len(urls) > 1 else "Google", win_s, win_e))
+                except (urllib.error.URLError, TimeoutError, ValueError, OSError) as exc:
+                    error = str(exc)
+            if fetched or not error:
+                CACHE_DIR.mkdir(parents=True, exist_ok=True)
+                payload = {
+                    "events": [
+                        {
+                            "id": ev.id,
+                            "title": ev.title,
+                            "start": ev.start.isoformat(timespec="seconds"),
+                            "end": ev.end.isoformat(timespec="seconds"),
+                            "all_day": ev.all_day,
+                            "calendar": ev.calendar,
+                        }
+                        for ev in fetched
+                    ]
+                }
+                tmp = CACHE_EVENTS.with_suffix(".json.tmp")
+                tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+                tmp.replace(CACHE_EVENTS)
+                cached = fetched
+                self.last_sync = datetime.now()
+                self.last_error = ""
+            else:
+                self.last_error = error
+            self.status_text = "Google" if urls else "local"
+        elif urls:
+            self.status_text = "Google"
+        else:
+            self.status_text = "local"
+        by_id: dict[str, Event] = {}
+        for ev in cached + local:
+            by_id[ev.id] = ev
+        self.events = list(by_id.values())
+
+    def month_matrix(self) -> list[list[date]]:
+        weeks = Calendar(firstweekday=6).monthdatescalendar(self.year, self.month)
+        while len(weeks) < 6:
+            last = weeks[-1][-1] + timedelta(days=1)
+            weeks.append([last + timedelta(days=i) for i in range(7)])
+        return weeks[:6]
+
+    def event_days(self) -> set[date]:
+        days: set[date] = set()
+        for ev in self.events:
+            days.update(ev.dates())
+        return days
+
+    def events_for(self, day: date) -> list[Event]:
+        found = [ev for ev in self.events if ev.on_date(day)]
+        found.sort(key=lambda ev: ev.sort_key())
+        return found
+
+    def paint(self) -> None:
+        if self.title is not None:
+            self.title.set_text(date(self.year, self.month, 1).strftime("%B %Y").upper())
+        weeks = self.month_matrix()
+        marked = self.event_days()
+        today = date.today()
+        for i, btn in enumerate(self.day_buttons):
+            r, c = divmod(i, 7)
+            day = weeks[r][c]
+            num: Gtk.Label = getattr(btn, "_num")
+            dot: Gtk.Box = getattr(btn, "_dot")
+            num.set_text(str(day.day))
+            ctx = btn.get_style_context()
+            ctx.remove_class("out")
+            ctx.remove_class("today")
+            ctx.remove_class("selected")
+            if day.month != self.month:
+                ctx.add_class("out")
+            if day == today:
+                ctx.add_class("today")
+            if day == self.selected:
+                ctx.add_class("selected")
+            if day in marked:
+                ctx.remove_class("no-events")
+                dot.get_style_context().remove_class("empty")
+            else:
+                dot.get_style_context().add_class("empty")
+        self.paint_list()
+        self.update_status()
+
+    def paint_list(self) -> None:
+        if self.day_head is None or self.event_box is None:
+            return
+        day = self.selected
+        found = self.events_for(day)
+        self.day_head.set_text(f"{day.strftime('%a').upper()} {day.day}  ({len(found)})")
+        for child in list(self.event_box.get_children()):
+            self.event_box.remove(child)
+        if not found:
+            empty = Gtk.Label(label="No events.", xalign=0.0)
+            empty.get_style_context().add_class("cal-event-empty")
+            empty.set_line_wrap(True)
+            self.event_box.pack_start(empty, False, False, 0)
+        else:
+            for ev in found:
+                lab = Gtk.Label(label=f"{ev.time_label()}  {ev.title}", xalign=0.0)
+                lab.get_style_context().add_class("cal-event")
+                lab.set_line_wrap(True)
+                lab.set_max_width_chars(36)
+                self.event_box.pack_start(lab, False, False, 0)
+        self.event_box.show_all()
+
+    def update_status(self) -> None:
+        if self.status is None:
+            return
+        if self.last_error:
+            self.status.set_text("sync failed")
+            return
+        if self.status_text == "Google" and self.last_sync is not None:
+            minutes = max(0, int((datetime.now() - self.last_sync).total_seconds() // 60))
+            if minutes <= 0:
+                self.status.set_text("Google  last sync now")
+            else:
+                self.status.set_text(f"Google  last sync {minutes}m")
+            return
+        if self.status_text == "Google":
+            self.status.set_text("Google  not synced yet")
+            return
+        self.status.set_text("local")
+
+    def show_pad(self) -> None:
+        today = date.today()
+        self.year = today.year
+        self.month = today.month
+        self.selected = today
+        self.reload_events(sync_net=True)
+        self.paint()
+        self.win.show_all()
+        self.shown = True
+        self.win.present()
+
+    def hide_pad(self) -> None:
+        self.win.hide()
+        self.shown = False
+
+    def toggle(self) -> None:
+        if self.shown:
+            self.hide_pad()
+        else:
+            self.show_pad()
+
+
+def main() -> int:
+    args = sys.argv[1:]
+    daemon = "--daemon" in args
+    start_shown = "--show" in args
+
+    lock = try_lock()
+    if lock is None:
+        if daemon:
+            return 0
+        cmd = "toggle"
+        if "--show" in args:
+            cmd = "show"
+        elif "--hide" in args:
+            cmd = "hide"
+        elif "--sync" in args:
+            cmd = "sync"
+        for _ in range(12):
+            if send_cmd(cmd):
+                return 0
+            time.sleep(0.05)
+        return 1
+
+    if not daemon:
+        start_shown = True
+
+    GLib.set_prgname("ocean-calendar")
+    CalendarOverlay(start_shown=start_shown)
+    Gtk.main()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

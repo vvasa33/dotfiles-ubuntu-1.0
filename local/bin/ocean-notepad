@@ -1,0 +1,353 @@
+#!/usr/bin/env python3
+"""ocean-notepad — Linux Ocean sticky notepad overlay for Hyprland.
+
+Hidden until toggled (SUPER+N). Anchored top-right under Waybar.
+Tokens match waybar/wofi: #f8fdff #00334d #24a9e8 #0075bc #b8e6f7
+"""
+
+from __future__ import annotations
+
+import fcntl
+import os
+import socket
+import sys
+import time
+from ctypes import CDLL
+from pathlib import Path
+
+CDLL("libgtk-layer-shell.so.0")
+
+import gi
+
+gi.require_version("Gtk", "3.0")
+gi.require_version("Gdk", "3.0")
+gi.require_version("GtkLayerShell", "0.1")
+
+from gi.repository import Gdk, GLib, Gtk  # noqa: E402
+from gi.repository import GtkLayerShell as LayerShell  # noqa: E402
+
+NOTE_PATH = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")) / "ocean-notepad" / "notes.txt"
+SOCK_PATH = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "ocean-notepad.sock"
+LOCK_PATH = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "ocean-notepad.lock"
+_HERE = Path(__file__).resolve()
+STYLE_CANDIDATES = [
+    Path.home() / ".config" / "ocean-notepad" / "style.css",
+    _HERE.parent.parent.parent / "config" / "ocean-notepad" / "style.css",
+]
+SAVE_MS = 400
+MARGIN_TOP = 10
+MARGIN_RIGHT = 10
+PAD_W = 300
+PAD_H = 360
+
+BUILTIN_CSS = b"""
+window.ocean-notepad { background-color: #f8fdff; }
+box.notepad-root {
+  background-color: #f8fdff;
+  color: #00334d;
+  border: 4px solid #00334d;
+  border-radius: 0;
+  box-shadow: 5px 5px 0 #00334d;
+  margin: 0 6px 6px 0;
+}
+box.notepad-header {
+  background-color: #24a9e8;
+  color: #00334d;
+  border-bottom: 4px solid #00334d;
+  min-height: 36px;
+  padding: 0 0 0 12px;
+}
+label.notepad-title {
+  font-family: "JetBrainsMono Nerd Font", monospace;
+  font-size: 12px;
+  font-weight: 900;
+  color: #00334d;
+}
+button.notepad-hide {
+  min-width: 64px;
+  min-height: 36px;
+  padding: 0 12px;
+  margin: 0;
+  border: none;
+  border-left: 4px solid #00334d;
+  border-radius: 0;
+  background-color: #00334d;
+  color: #f8fdff;
+  font-family: "JetBrainsMono Nerd Font", monospace;
+  font-size: 11px;
+  font-weight: 900;
+  box-shadow: none;
+  outline: none;
+}
+button.notepad-hide:hover { background-color: #0075bc; color: #f8fdff; }
+button.notepad-hide:active { background-color: #24a9e8; color: #00334d; }
+scrolledwindow.notepad-scroll { background-color: #f8fdff; border: none; min-height: 280px; }
+textview.notepad-view, textview.notepad-view text {
+  background-color: #f8fdff;
+  color: #00334d;
+  font-family: "JetBrainsMono Nerd Font", monospace;
+  font-size: 13px;
+  font-weight: 500;
+}
+label.notepad-status {
+  background-color: #b8e6f7;
+  color: #00334d;
+  border-top: 4px solid #00334d;
+  min-height: 26px;
+  padding: 4px 12px;
+  font-family: "JetBrainsMono Nerd Font", monospace;
+  font-size: 11px;
+  font-weight: 700;
+}
+"""
+
+
+def note_file() -> Path:
+    NOTE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    if not NOTE_PATH.exists():
+        NOTE_PATH.write_text("", encoding="utf-8")
+    return NOTE_PATH
+
+
+def load_css() -> None:
+    screen = Gdk.Screen.get_default()
+    if screen is None:
+        return
+    builtin = Gtk.CssProvider()
+    builtin.load_from_data(BUILTIN_CSS)
+    Gtk.StyleContext.add_provider_for_screen(
+        screen, builtin, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+    )
+    for path in STYLE_CANDIDATES:
+        if path.is_file():
+            extra = Gtk.CssProvider()
+            extra.load_from_path(str(path))
+            Gtk.StyleContext.add_provider_for_screen(
+                screen, extra, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION + 1
+            )
+            break
+
+
+def send_cmd(cmd: str) -> bool:
+    try:
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.settimeout(0.4)
+        sock.connect(str(SOCK_PATH))
+        sock.sendall((cmd + "\n").encode())
+        sock.close()
+        return True
+    except OSError:
+        return False
+
+
+def try_lock():
+    lockf = open(LOCK_PATH, "w")
+    try:
+        fcntl.flock(lockf, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        lockf.close()
+        return None
+    lockf.write(str(os.getpid()))
+    lockf.flush()
+    return lockf
+
+
+class Notepad:
+    def __init__(self, start_shown: bool) -> None:
+        self.view: Gtk.TextView | None = None
+        self.status: Gtk.Label | None = None
+        self.save_src = 0
+        self.shown = False
+        self.listen: socket.socket | None = None
+        load_css()
+        self.win = self.build()
+        self.setup_socket()
+        if start_shown:
+            self.show_pad()
+        else:
+            self.hide_pad()
+
+    def build(self) -> Gtk.Window:
+        win = Gtk.Window(title="Notes", type=Gtk.WindowType.TOPLEVEL)
+        win.set_default_size(PAD_W, PAD_H)
+        win.set_resizable(False)
+        win.set_decorated(False)
+        win.set_skip_taskbar_hint(True)
+        win.set_app_paintable(False)
+        win.get_style_context().add_class("ocean-notepad")
+
+        LayerShell.init_for_window(win)
+        LayerShell.set_namespace(win, "ocean-notepad")
+        LayerShell.set_layer(win, LayerShell.Layer.OVERLAY)
+        LayerShell.set_anchor(win, LayerShell.Edge.TOP, True)
+        LayerShell.set_anchor(win, LayerShell.Edge.RIGHT, True)
+        LayerShell.set_anchor(win, LayerShell.Edge.LEFT, False)
+        LayerShell.set_anchor(win, LayerShell.Edge.BOTTOM, False)
+        LayerShell.set_margin(win, LayerShell.Edge.TOP, MARGIN_TOP)
+        LayerShell.set_margin(win, LayerShell.Edge.RIGHT, MARGIN_RIGHT)
+        LayerShell.set_exclusive_zone(win, 0)
+        if hasattr(LayerShell, "set_keyboard_mode"):
+            LayerShell.set_keyboard_mode(win, LayerShell.KeyboardMode.ON_DEMAND)
+        else:
+            LayerShell.set_keyboard_interactivity(win, True)
+
+        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        root.get_style_context().add_class("notepad-root")
+
+        header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+        header.get_style_context().add_class("notepad-header")
+
+        title = Gtk.Label(label="NOTES", xalign=0.0)
+        title.set_hexpand(True)
+        title.get_style_context().add_class("notepad-title")
+
+        hide_btn = Gtk.Button(label="HIDE")
+        hide_btn.set_relief(Gtk.ReliefStyle.NONE)
+        hide_btn.get_style_context().add_class("notepad-hide")
+        hide_btn.connect("clicked", lambda *_: self.hide_pad())
+
+        header.pack_start(title, True, True, 0)
+        header.pack_end(hide_btn, False, False, 0)
+
+        view = Gtk.TextView()
+        view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+        view.set_accepts_tab(True)
+        view.set_hexpand(True)
+        view.set_vexpand(True)
+        view.set_top_margin(10)
+        view.set_bottom_margin(10)
+        view.set_left_margin(12)
+        view.set_right_margin(12)
+        view.get_style_context().add_class("notepad-view")
+        buf = view.get_buffer()
+        buf.set_text(note_file().read_text(encoding="utf-8"))
+        buf.connect("changed", self.on_changed)
+
+        scroll = Gtk.ScrolledWindow()
+        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroll.set_hexpand(True)
+        scroll.set_vexpand(True)
+        scroll.add(view)
+        scroll.get_style_context().add_class("notepad-scroll")
+
+        status = Gtk.Label(label="ready", xalign=0.0)
+        status.get_style_context().add_class("notepad-status")
+
+        root.pack_start(header, False, False, 0)
+        root.pack_start(scroll, True, True, 0)
+        root.pack_start(status, False, False, 0)
+        win.add(root)
+
+        win.connect("key-press-event", self.on_key)
+        win.connect("delete-event", self.on_close)
+
+        self.view = view
+        self.status = status
+        return win
+
+    def setup_socket(self) -> None:
+        if SOCK_PATH.exists():
+            SOCK_PATH.unlink()
+        listen = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        listen.bind(str(SOCK_PATH))
+        listen.listen(4)
+        listen.setblocking(False)
+        self.listen = listen
+        GLib.io_add_watch(listen.fileno(), GLib.IO_IN, self.on_socket)
+
+    def on_socket(self, _fd, _cond) -> bool:
+        if self.listen is None:
+            return False
+        try:
+            conn, _ = self.listen.accept()
+        except BlockingIOError:
+            return True
+        try:
+            data = conn.recv(64).decode(errors="ignore").strip()
+        finally:
+            conn.close()
+        if data == "toggle":
+            self.toggle()
+        elif data == "show":
+            self.show_pad()
+        elif data == "hide":
+            self.hide_pad()
+        return True
+
+    def on_key(self, _win, event) -> bool:
+        if event.keyval == Gdk.KEY_Escape:
+            self.hide_pad()
+            return True
+        return False
+
+    def on_close(self, *_args) -> bool:
+        self.save_now()
+        self.hide_pad()
+        return True
+
+    def on_changed(self, _buf) -> None:
+        if self.status is not None:
+            self.status.set_text("editing")
+        if self.save_src:
+            GLib.source_remove(self.save_src)
+        self.save_src = GLib.timeout_add(SAVE_MS, self.save_now)
+
+    def save_now(self) -> bool:
+        self.save_src = 0
+        if self.view is None:
+            return False
+        buf = self.view.get_buffer()
+        start, end = buf.get_start_iter(), buf.get_end_iter()
+        text = buf.get_text(start, end, True)
+        path = note_file()
+        tmp = path.with_suffix(".txt.tmp")
+        tmp.write_text(text, encoding="utf-8")
+        tmp.replace(path)
+        if self.status is not None:
+            self.status.set_text("saved")
+        return False
+
+    def show_pad(self) -> None:
+        self.win.show_all()
+        self.shown = True
+        if self.view is not None:
+            self.view.grab_focus()
+
+    def hide_pad(self) -> None:
+        self.save_now()
+        self.win.hide()
+        self.shown = False
+
+    def toggle(self) -> None:
+        if self.shown:
+            self.hide_pad()
+        else:
+            self.show_pad()
+
+
+def main() -> int:
+    args = sys.argv[1:]
+    daemon = "--daemon" in args
+    start_shown = "--show" in args
+
+    lock = try_lock()
+    if lock is None:
+        if daemon:
+            return 0
+        for _ in range(12):
+            if send_cmd("toggle"):
+                return 0
+            time.sleep(0.05)
+        return 1
+
+    if not daemon:
+        start_shown = True
+
+    GLib.set_prgname("ocean-notepad")
+    Notepad(start_shown=start_shown)
+    Gtk.main()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

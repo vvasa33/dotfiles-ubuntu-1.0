@@ -118,3 +118,9 @@ fi
 . "$HOME/.cargo/env"
 
 export PATH=$PATH:/home/vvasa/.spicetify
+
+# Dafny CLI (self-contained 4.11.0). .NET 8 SDK lives in ~/.dotnet for Dafny/VS Code.
+if [ -d "$HOME/.local/bin" ]; then
+    export PATH="$HOME/.local/bin:$PATH"
+fi
+

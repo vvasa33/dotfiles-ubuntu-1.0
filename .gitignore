@@ -3,3 +3,7 @@
 *~
 .DS_Store
 .dotfiles-backup/
+
+# ocean-calendar secrets (copy from config.example.json locally)
+config/ocean-calendar/config.json
+config/ocean-calendar/token.json

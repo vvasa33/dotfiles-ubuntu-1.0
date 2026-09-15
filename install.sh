@@ -41,7 +41,7 @@ link_path() {
 install_links() {
   local name
 
-  for name in hypr waybar kitty wofi swaync nvim gtk-3.0 gtk-4.0; do
+  for name in hypr waybar kitty wofi swaync nvim gtk-3.0 gtk-4.0 ocean-notepad ocean-calendar; do
     link_path "$DOTFILES/config/$name" "$HOME/.config/$name"
   done
 
@@ -49,6 +49,8 @@ install_links() {
 
   link_path "$DOTFILES/local/bin/spotify" "$HOME/.local/bin/spotify"
   link_path "$DOTFILES/local/bin/spotify-nowplaying" "$HOME/.local/bin/spotify-nowplaying"
+  link_path "$DOTFILES/local/bin/ocean-notepad" "$HOME/.local/bin/ocean-notepad"
+  link_path "$DOTFILES/local/bin/ocean-calendar" "$HOME/.local/bin/ocean-calendar"
   link_path "$DOTFILES/local/share/applications/spotify.desktop" \
     "$HOME/.local/share/applications/spotify.desktop"
 

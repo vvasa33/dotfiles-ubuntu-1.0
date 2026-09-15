@@ -43,16 +43,26 @@ window#waybar {
     background: #b8e6f7;
 }
 
-#workspaces button.active {
+#workspaces button.empty {
+    background: #f8fdff;
+    color: #6a8fa3;
+    box-shadow: 2px 2px 0 #00334d;
+}
+
+/* Per-output current workspace. .active is global focus, so it would
+   highlight workspace 1 on the other monitor; empty persistents also
+   get .hosting-monitor, so require visible or active as well. */
+#workspaces button.hosting-monitor.visible,
+#workspaces button.hosting-monitor.active {
     background: #00334d;
     color: #f8fdff;
     box-shadow: 3px 3px 0 #24a9e8;
 }
 
-#workspaces button.empty {
-    background: #f8fdff;
-    color: #6a8fa3;
-    box-shadow: 2px 2px 0 #00334d;
+#workspaces button.hosting-monitor.visible:hover,
+#workspaces button.hosting-monitor.active:hover {
+    background: #0075bc;
+    color: #f8fdff;
 }
 
 /* ---- Clock: single accent module ---- */
